@@ -405,7 +405,8 @@ class AnchorLoader(mx.io.DataIter):
         label = assign_anchor(feat_shape[0], np.zeros((0, 5)), im_info, self.cfg,
                               self.feat_stride, self.anchor_scales, self.anchor_ratios, self.allowed_border)
         label = [label[k] for k in self.label_name]
-        label_shape = [(k, tuple([input_batch_size] + list(v.shape[1:]))) for k, v in zip(self.label_name, label)]
+        label_shape = [(k, tuple([input_batch_size] + list(v.shape[1:])))
+                       for k, v in zip(self.label_name, label)]
         return max_data_shape, label_shape
 
     def get_batch(self):

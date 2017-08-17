@@ -51,14 +51,24 @@ from utils.lr_scheduler import WarmupMultiFactorScheduler
 
 
 def train_net(args, ctx, pretrained, epoch, prefix, begin_epoch, end_epoch, lr, lr_step):
-    logger, final_output_path = create_logger(config.output_path, args.cfg, config.dataset.image_set)
+    logger, final_output_path = create_logger(config.output_path,
+                                              args.cfg,
+                                              config.dataset.image_set)
     prefix = os.path.join(final_output_path, prefix)
 
     # load symbol
     shutil.copy2(os.path.join(curr_path, 'symbols', config.symbol + '.py'), final_output_path)
+
     sym_instance = eval(config.symbol + '.' + config.symbol)()
     sym = sym_instance.get_symbol(config, is_train=True)
     feat_sym = sym.get_internals()['rpn_cls_score_output']
+
+    a = mx.viz.plot_network(sym, shape = {'data':(1, 3, 600, 800), 'im_info':(1, 3),
+                                          'gt_boxes':(1, 19, 5), 'label':(1, 22800),
+                                          'bbox_target':(1, 48, 38, 50),
+                                          'bbox_weight':(1, 48, 38, 50)})
+    a.render(config.symbol)
+    import ipdb; ipdb.set_trace()
 
     # setup multi-gpu
     batch_size = len(ctx)
@@ -70,15 +80,24 @@ def train_net(args, ctx, pretrained, epoch, prefix, begin_epoch, end_epoch, lr, 
 
     # load dataset and prepare imdb for training
     image_sets = [iset for iset in config.dataset.image_set.split('+')]
-    roidbs = [load_gt_roidb(config.dataset.dataset, image_set, config.dataset.root_path, config.dataset.dataset_path,
+    roidbs = [load_gt_roidb(config.dataset.dataset,
+                            image_set,
+                            config.dataset.root_path,
+                            config.dataset.dataset_path,
                             flip=config.TRAIN.FLIP)
               for image_set in image_sets]
     roidb = merge_roidb(roidbs)
     roidb = filter_roidb(roidb, config)
+
     # load training data
-    train_data = AnchorLoader(feat_sym, roidb, config, batch_size=input_batch_size, shuffle=config.TRAIN.SHUFFLE, ctx=ctx,
-                              feat_stride=config.network.RPN_FEAT_STRIDE, anchor_scales=config.network.ANCHOR_SCALES,
-                              anchor_ratios=config.network.ANCHOR_RATIOS, aspect_grouping=config.TRAIN.ASPECT_GROUPING)
+    train_data = AnchorLoader(feat_sym, roidb, config,
+                              batch_size=input_batch_size,
+                              shuffle=config.TRAIN.SHUFFLE,
+                              ctx=ctx,
+                              feat_stride=config.network.RPN_FEAT_STRIDE,
+                              anchor_scales=config.network.ANCHOR_SCALES,
+                              anchor_ratios=config.network.ANCHOR_RATIOS,
+                              aspect_grouping=config.TRAIN.ASPECT_GROUPING)
 
     # infer max shape
     max_data_shape = [('data', (config.TRAIN.BATCH_IMAGES, 3, max([v[0] for v in config.SCALES]), max([v[1] for v in config.SCALES])))]
@@ -106,9 +125,14 @@ def train_net(args, ctx, pretrained, epoch, prefix, begin_epoch, end_epoch, lr, 
     data_names = [k[0] for k in train_data.provide_data_single]
     label_names = [k[0] for k in train_data.provide_label_single]
 
-    mod = MutableModule(sym, data_names=data_names, label_names=label_names,
-                        logger=logger, context=ctx, max_data_shapes=[max_data_shape for _ in range(batch_size)],
-                        max_label_shapes=[max_label_shape for _ in range(batch_size)], fixed_param_prefix=fixed_param_prefix)
+    mod = MutableModule(sym,
+                        data_names=data_names,
+                        label_names=label_names,
+                        logger=logger,
+                        context=ctx,
+                        max_data_shapes=[max_data_shape for _ in range(batch_size)],
+                        max_label_shapes=[max_label_shape for _ in range(batch_size)],
+                        fixed_param_prefix=fixed_param_prefix)
 
     if config.TRAIN.RESUME:
         mod._preload_opt_states = '%s-%04d.states'%(prefix, begin_epoch)
@@ -123,13 +147,16 @@ def train_net(args, ctx, pretrained, epoch, prefix, begin_epoch, end_epoch, lr, 
     bbox_metric = metric.RCNNL1LossMetric(config)
     eval_metrics = mx.metric.CompositeEvalMetric()
     # rpn_eval_metric, rpn_cls_metric, rpn_bbox_metric, eval_metric, cls_metric, bbox_metric
-    for child_metric in [rpn_eval_metric, rpn_cls_metric, rpn_bbox_metric, eval_metric, cls_metric, bbox_metric]:
+    for child_metric in [rpn_eval_metric, rpn_cls_metric, rpn_bbox_metric,
+                         eval_metric, cls_metric, bbox_metric]:
         eval_metrics.add(child_metric)
     # callback
     batch_end_callback = callback.Speedometer(train_data.batch_size, frequent=args.frequent)
     means = np.tile(np.array(config.TRAIN.BBOX_MEANS), 2 if config.CLASS_AGNOSTIC else config.dataset.NUM_CLASSES)
     stds = np.tile(np.array(config.TRAIN.BBOX_STDS), 2 if config.CLASS_AGNOSTIC else config.dataset.NUM_CLASSES)
-    epoch_end_callback = [mx.callback.module_checkpoint(mod, prefix, period=1, save_optimizer_states=True), callback.do_checkpoint(prefix, means, stds)]
+    epoch_end_callback = [mx.callback.module_checkpoint(mod, prefix, period=1,
+                                                        save_optimizer_states=True),
+                          callback.do_checkpoint(prefix, means, stds)]
     # decide learning rate
     base_lr = lr
     lr_factor = config.TRAIN.lr_factor
@@ -151,17 +178,29 @@ def train_net(args, ctx, pretrained, epoch, prefix, begin_epoch, end_epoch, lr, 
         train_data = PrefetchingIter(train_data)
 
     # train
-    mod.fit(train_data, eval_metric=eval_metrics, epoch_end_callback=epoch_end_callback,
-            batch_end_callback=batch_end_callback, kvstore=config.default.kvstore,
-            optimizer='sgd', optimizer_params=optimizer_params,
-            arg_params=arg_params, aux_params=aux_params, begin_epoch=begin_epoch, num_epoch=end_epoch)
+    mod.fit(train_data,
+            eval_metric=eval_metrics,
+            epoch_end_callback=epoch_end_callback,
+            batch_end_callback=batch_end_callback,
+            kvstore=config.default.kvstore,
+            optimizer='sgd',
+            optimizer_params=optimizer_params,
+            arg_params=arg_params,
+            aux_params=aux_params,
+            begin_epoch=begin_epoch, num_epoch=end_epoch)
 
 
 def main():
     print('Called with argument:', args)
     ctx = [mx.gpu(int(i)) for i in config.gpus.split(',')]
-    train_net(args, ctx, config.network.pretrained, config.network.pretrained_epoch, config.TRAIN.model_prefix,
-              config.TRAIN.begin_epoch, config.TRAIN.end_epoch, config.TRAIN.lr, config.TRAIN.lr_step)
+    train_net(args, ctx,
+              config.network.pretrained,
+              config.network.pretrained_epoch,
+              config.TRAIN.model_prefix,
+              config.TRAIN.begin_epoch,
+              config.TRAIN.end_epoch,
+              config.TRAIN.lr,
+              config.TRAIN.lr_step)
 
 if __name__ == '__main__':
     main()
